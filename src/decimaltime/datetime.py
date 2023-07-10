@@ -4,7 +4,7 @@ import math as _math
 import datetime as _datetime
 
 from .constants import *
-from .utils import check_date_fields, check_time_fields, is_leap
+from .utils import *
 
 class Datetime:
 
@@ -89,54 +89,129 @@ class Datetime:
 
     def __str__(self):
         "Convert to string, for str()."
-        return self.isoformat(sep=' ')
+        return "asdfasdf"
 
     @classmethod
-    def fromtimestamp(cls, t:float, tz=None):
+    def fromtimestamp(cls, t:float, tz: _datetime.tzinfo | None =None) -> 'Datetime':
         'datetime from POSIX timestamp (aka from UNIX EPOCH)'
-        udt = _datetime.datetime.fromtimestamp(t, tz)
-        fepoch = _datetime.datetime(year=1792, month=9, day=22, tzinfo=tz)
-        if udt < fepoch:
-            raise ValueError('cannot have a date before the start of the calendar')
-        time_since_epoch = udt - fepoch
+        return cls(*fromtimestamp(t, tz))
 
-        print(f" uh {time_since_epoch.days}")
-        year = round(time_since_epoch.days / 365)
-        year = year if year > 0 else 1
-        y = year - 1
-        # TODO: support other leap year rules
-        # 1. Straight 4 - Leap years are every four years, starting at 3
-        # 2. 4/100/400 - leap years are 3,7,11,15,20 and every 4 thereafter, except // 100, except // 400
-        # 3. 4/128 - leap years are 3,7,11,15,20 and every four years thereafter, except // 128
-        special_leaps = (3,7,11,15,20)
-        if y in special_leaps:
-            days_before_year = y*365 + (special_leaps.index(y)+1)
-        else:
-            days_before_year = (y*365 + y//4 - y//100 + y//400)
-        days_since_year = time_since_epoch.days - days_before_year
-
-
-        month = int(days_since_year // 30) + 1 
-        # if we are Sansculottides (Complementary)
-        if 361 <= days_since_year <= 366:
-            month = None
-
-        day = int(days_since_year % 30) + 1
-
-        seconds_since_midnight = time_since_epoch.seconds / 0.864
-        hh = int(seconds_since_midnight / 10_000)
-        mm = int((seconds_since_midnight / 100) % 100)
-        ss = int(seconds_since_midnight % 100)
-        d = (seconds_since_midnight - int(seconds_since_midnight)) * 1000
-        us = int(d)# * 1_000_000
-
-        return cls(year, month, day, hh, mm, ss, us, tz)
+    @classmethod
+    def fromdatetime(cls, dt:_datetime.datetime, tz: _datetime.tzinfo | None =None) -> 'Datetime':
+        t = _datetime.datetime.timestamp(dt)
+        print(t)
+        return cls(*fromtimestamp(t, tz))
         
+    @classmethod
+    def now(cls, tz: str | _datetime.tzinfo | None = None) -> 'Datetime':
+        "Construct a datetime from time.time() and optional time zone info."
+        t = _time.time()
+        if tz == 'UTC':
+            return cls.fromtimestamp(t, _datetime.timezone.utc)
+        else:
+            return cls.fromtimestamp(t, tz)
 
+    @classmethod
+    def utcnow(cls) -> 'Datetime':
+        "Construct a UTC datetime from time.time()."
+        return cls.now(tz='UTC')
 
+    def utcoffset(self) -> int:
+        return self._tzinfo.utcoffset(None) if self._tzinfo else None
 
+    def replace(self, year=None, month=None, day=None, hour=None,
+                minute=None, second=None, microsecond=None, tzinfo=True,
+                *, fold=None):
+        """Return a new Datetime with new values for the specified fields."""
+        if year is None:
+            year = self.year
+        if month is None:
+            month = self.month
+        if day is None:
+            day = self.day
+        if hour is None:
+            hour = self.hour
+        if minute is None:
+            minute = self.minute
+        if second is None:
+            second = self.second
+        if microsecond is None:
+            microsecond = self.microsecond
+        if tzinfo is True:
+            tzinfo = self.tzinfo
+        if fold is None:
+            fold = self.fold
+        return type(self)(year, month, day, hour, minute, second,
+                          microsecond, tzinfo, fold=fold)
 
+    def to_datetime(self) -> _datetime.datetime:
+        pass
 
+    # comparisons
+    def __eq__(self, other):
+        if isinstance(other, (Datetime, _datetime.datetime)):
+            return self._cmp(other, allow_mixed=True) == 0
+        return False
 
+    def __le__(self, other):
+        if isinstance(other, (Datetime, _datetime.datetime)):
+            return self._cmp(other) <= 0
+        cmperror(self, other)
 
+    def __lt__(self, other):
+        if isinstance(other, (Datetime, _datetime.datetime)):
+            return self._cmp(other) < 0
+        else:
+            cmperror(self, other)
 
+    def __ge__(self, other):
+        if isinstance(other, (Datetime, _datetime.datetime)):
+            return self._cmp(other) >= 0
+        else:
+            cmperror(self, other)
+
+    def __gt__(self, other):
+        if isinstance(other, (Datetime, _datetime.datetime)):
+            return self._cmp(other) > 0
+        else:
+            cmperror(self, other)
+
+    def _cmp(self, other, allow_mixed=False):
+        if isinstance(other, _datetime.datetime):
+            other = self.fromdatetime(other)
+        mytz = self._tzinfo
+        ottz = other._tzinfo
+        myoff = otoff = None
+
+        _cmp = lambda x,y: 0 if x == y else 1 if x > y else -1
+
+        if mytz is ottz:
+            base_compare = True
+        else:
+            myoff = self.utcoffset()
+            otoff = other.utcoffset()
+            # Assume that allow_mixed means that we are called from __eq__
+            if allow_mixed:
+                if myoff != self.replace(fold=not self.fold).utcoffset():
+                    return 2
+                if otoff != other.replace(fold=not other.fold).utcoffset():
+                    return 2
+            base_compare = myoff == otoff
+
+        if base_compare:
+            return _cmp((self._year, self._month, self._day,
+                         self._hour, self._minute, self._second,
+                         self._microsecond),
+                        (other._year, other._month, other._day,
+                         other._hour, other._minute, other._second,
+                         other._microsecond))
+        if myoff is None or otoff is None:
+            if allow_mixed:
+                return 2 # arbitrary non-zero value
+            else:
+                raise TypeError("cannot compare naive and aware datetimes")
+        # XXX What follows could be done more efficiently...
+        diff = self - other     # this will take offsets into account
+        if diff.days < 0:
+            return -1
+        return diff and 1 or 0
