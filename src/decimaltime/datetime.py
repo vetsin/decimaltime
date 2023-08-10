@@ -8,7 +8,7 @@ from .utils import *
 
 class Datetime:
 
-    def __new__(cls, year:int, month:int | None=None, day=None, hour=0, minute=0, second=0, microsecond=0, tzinfo=None, *, fold=0):
+    def __new__(cls, year:int, month:int | None=None, day=None, hour=0, minute=0, second=0, microsecond=0, tzinfo:_datetime.timezone=None, *, fold=0):
         check_date_fields(year, month, day)
         check_time_fields(hour, minute, second, microsecond)
         self = object.__new__(cls)
@@ -30,17 +30,17 @@ class Datetime:
         return self._year
 
     @property
-    def month(self):
+    def month(self) -> int | None:
         """month (1-12 | None)"""
         return self._month
 
     @property
-    def day(self):
-        """year (1-?)"""
+    def day(self) -> int:
+        """day (1-30)"""
         return self._day
 
     @property
-    def hour(self):
+    def hour(self) -> int:
         """hour (0-9)"""
         return self._hour
 
@@ -50,23 +50,29 @@ class Datetime:
         return self._minute
 
     @property
-    def second(self):
+    def second(self) -> int:
         """second (0-99)"""
         return self._second
 
     @property
-    def microsecond(self):
+    def microsecond(self) -> int:
         """microsecond (0-999999)"""
         return self._microsecond
 
     @property
-    def tzinfo(self):
+    def tzinfo(self) -> _datetime.timezone:
         """timezone info object"""
         return self._tzinfo
 
     @property
     def fold(self):
         return self._fold
+
+    @property
+    def day_of_year(self) -> int:
+        if self._month is not None:
+            return (self._month * 30) + self._day
+        return 360 + self._day
 
     def __repr__(self):
         """Convert to formal string, for repr()."""
@@ -99,13 +105,13 @@ class Datetime:
     @classmethod
     def fromdatetime(cls, dt:_datetime.datetime, tz: _datetime.tzinfo | None =None) -> 'Datetime':
         t = _datetime.datetime.timestamp(dt)
-        print(t)
         return cls(*fromtimestamp(t, tz))
         
     @classmethod
     def now(cls, tz: str | _datetime.tzinfo | None = None) -> 'Datetime':
         "Construct a datetime from time.time() and optional time zone info."
         t = _time.time()
+        print(f"t is {t}")
         if tz == 'UTC':
             return cls.fromtimestamp(t, _datetime.timezone.utc)
         else:
@@ -116,7 +122,32 @@ class Datetime:
         "Construct a UTC datetime from time.time()."
         return cls.now(tz='UTC')
 
+    def astimezone(self, tz:_datetime.tzinfo):
+        mytz = self.tzinfo
+        if mytz is None:
+            mytz = self._local_timezone()
+            myoffset = mytz.utcoffset(self)
+        else:
+            myoffset = mytz.utcoffset(self)
+            if myoffset is None:
+                mytz = self.replace(tzinfo=None)._local_timezone()
+                myoffset = mytz.utcoffset(self)
+
+        if tz is mytz:
+            return self
+
+        # Convert self to UTC, and attach the new time zone object.
+        utc = (self - myoffset).replace(tzinfo=tz)
+
+        # Convert from UTC to tz's local time.
+        return tz.fromutc(utc)
+        pass
+
+    def strftime(self, format:str) -> str:
+        return wrap_strftime(self, format)
+
     def utcoffset(self) -> int:
+        assert False, 'this is not in decimal hours!'
         return self._tzinfo.utcoffset(None) if self._tzinfo else None
 
     def replace(self, year=None, month=None, day=None, hour=None,
@@ -144,8 +175,8 @@ class Datetime:
         return type(self)(year, month, day, hour, minute, second,
                           microsecond, tzinfo, fold=fold)
 
-    def to_datetime(self) -> _datetime.datetime:
-        pass
+    def asdatetime(self) -> _datetime.datetime:
+        raise Exception('not implemented')
 
     # comparisons
     def __eq__(self, other):
